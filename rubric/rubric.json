@@ -2,7 +2,7 @@
   "rows": [
     {
       "id": "P11-11.10a-001",
-      "finding_category": "Missing input validation on electronic record fields",
+      "finding_category": "Missing field-level constraint enforcement on regulated record persistence path",
       "part11_clauses": [
         "11.10(a)"
       ],
@@ -18,7 +18,8 @@
       "false_positive_traps": [
         "Validation may be enforced at the database DDL level (NOT NULL, CHECK constraints) even when absent in application code \u2014 check migration scripts before calling this a finding",
         "A @Valid on the outer DTO may cascade to nested objects; inspect the full object graph before concluding validation is absent",
-        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class"
+        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class",
+        "XSS, SQL injection, and other generic input sanitization findings are explicitly out-of-scope for this row \u2014 this row fires only when regulated field data reaches a JPA/ORM persistence call without field-level constraints; do not use the finding_category as a keyword match for generic web sanitization findings"
       ]
     },
     {
@@ -148,7 +149,7 @@
       ],
       "mapping_confidence": "high",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the password column stores raw text by inspecting the entity field, the save path, and a sample database row (hash pattern absent); confirm no PasswordEncoder is wired.",
+      "evidence_needed": "Confirm the password column stores raw text by inspecting the entity field, the save path, and a sample database row (hash pattern absent); confirm no PasswordEncoder is wired. [Disambiguation: this row addresses credential storage failure — the specific access-control failure mode is that plaintext credentials can be exfiltrated and replayed to gain unauthorized system access, implicating the 'limiting system access' requirement directly at the credential layer.]",
       "false_positive_traps": [
         "An @Convert annotation using a custom AttributeConverter may perform encoding transparently \u2014 inspect the converter implementation before concluding storage is plaintext",
         "Some entities store an OAuth token or API key in a field named 'password' that is not the user credential \u2014 confirm the field semantics"
@@ -167,7 +168,7 @@
       ],
       "mapping_confidence": "medium",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the endpoint is reachable without a session or token by tracing the security filter chain; confirm the endpoint exposes regulated record data or system credentials (e.g., /actuator/env, /actuator/heapdump).",
+      "evidence_needed": "Confirm the endpoint is reachable without a session or token by tracing the security filter chain; confirm the endpoint exposes regulated record data or system credentials (e.g., /actuator/env, /actuator/heapdump). [Disambiguation: this row addresses unauthenticated endpoint exposure — the specific access-control failure mode is missing authentication at the HTTP security filter layer for management/admin paths, not credential storage (d-001), not per-record ownership authorization (d-003), and not session lifecycle management (d-004).]",
       "false_positive_traps": [
         "Actuator endpoints may be restricted at the network/reverse-proxy layer even when the application allows them \u2014 verify network-layer controls before raising as a finding",
         "/actuator/health and /actuator/info are commonly left open by design and carry no regulated data; restrict this finding to endpoints exposing credentials or record data"
@@ -186,10 +187,11 @@
       ],
       "mapping_confidence": "high",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the endpoint is reachable by a low-privileged authenticated user; confirm the ID space is guessable (sequential integer or short UUID); confirm a record belonging to a different user is returned.",
+      "evidence_needed": "Confirm the endpoint is reachable by a low-privileged authenticated user; confirm the ID space is guessable (sequential integer or short UUID); confirm a record belonging to a different user is returned. Confirm that the record returned by the endpoint is an electronic record subject to Part 11 (i.e., a regulated record type, not a non-regulated resource such as user profile photos, settings, or other non-regulated data). [Disambiguation: this row addresses per-record ownership authorization failure (IDOR) \u2014 the specific access-control failure mode is missing cross-user access gate at the record retrieval level for Part 11-regulated records, distinct from missing authentication (d-002), credential storage (d-001), and session lifecycle (d-004).]",
       "false_positive_traps": [
         "UUIDs with sufficient entropy may mitigate IDOR even without authorization checks \u2014 assess effective exploitability but still note the missing access control as a design gap",
-        "Multi-tenant filtering at the JPA layer (e.g., Hibernate @Filter on tenantId) may transparently enforce ownership \u2014 inspect the filter configuration"
+        "Multi-tenant filtering at the JPA layer (e.g., Hibernate @Filter on tenantId) may transparently enforce ownership \u2014 inspect the filter configuration",
+        "IDOR on non-regulated resources (user profile photos, application settings, non-Part-11 data) is out of scope for this row \u2014 confirm the retrieved record type is subject to Part 11 before raising"
       ]
     },
     {
@@ -200,15 +202,15 @@
       ],
       "clause_quote": "Limiting system access to authorized individuals.",
       "code_patterns": [
-        "Logout endpoint calls SecurityContextHolder.clearContext() but does not call HttpSession.invalidate() or TokenStore.removeAccessToken(), leaving the session or bearer token valid for reuse",
-        "JWT-based auth with no token revocation list (blacklist) and token expiry set longer than the session idle timeout \u2014 a stolen token remains valid past logout"
+        "Logout endpoint calls SecurityContextHolder.clearContext() but does not call HttpSession.invalidate() or TokenStore.removeAccessToken(), leaving the stateful server-side session or opaque bearer token valid for reuse \u2014 applies to HttpSession-based and stateful token-store architectures only",
+        "Spring Security logout handler is configured with .logoutSuccessUrl('/login') but no .invalidateHttpSession(true) or .deleteCookies('JSESSIONID'), leaving the session active in the server-side session store after the user has logged out"
       ],
       "mapping_confidence": "high",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the logout endpoint does not invalidate server-side session; confirm a captured token or session cookie continues to return 200 on authenticated endpoints post-logout.",
+      "evidence_needed": "Confirm the logout endpoint does not invalidate the server-side session (HttpSession.invalidate() absent) and that a captured session cookie continues to return 200 on authenticated endpoints post-logout. This row applies to stateful session architectures; JWT stateless token revocation absence is addressed by P11-11.300-004, not this row. [Disambiguation: this row addresses live session invalidation failure at logout \u2014 the specific access-control failure mode is that a logged-out user's stateful session remains usable, distinct from credential storage (d-001), unauthenticated endpoint exposure (d-002), and per-record ownership authorization (d-003).]",
       "false_positive_traps": [
-        "Short-lived JWTs (e.g., 5-minute expiry) with refresh token rotation present a lower risk \u2014 assess effective window of exposure before severity rating",
-        "Token revocation may be handled by an API gateway or OAuth server outside the application codebase \u2014 check the full auth architecture"
+        "JWT-based stateless authentication architectures are out of scope for this row \u2014 JWT token revocation absence (no blacklist/revocation store) is covered by P11-11.300-004, not here; applying both rows to the same JWT implementation creates a duplicate finding",
+        "Token revocation may be handled by an API gateway or OAuth server outside the application codebase \u2014 check the full auth architecture before raising"
       ]
     },
     {
@@ -347,7 +349,7 @@
     },
     {
       "id": "P11-11.10h-001",
-      "finding_category": "No source-of-input validation on inbound data operations",
+      "finding_category": "Missing device-identity authentication on data ingestion endpoint",
       "part11_clauses": [
         "11.10(h)"
       ],
@@ -408,7 +410,7 @@
       "part11_clauses": [
         "11.30"
       ],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
         "HTTP client configuration (RestTemplate, OkHttpClient, WebClient) uses a plain http:// base URL for calls to external services that transmit regulated records \u2014 TLS is not enforced",
         "Spring Boot application.properties sets server.ssl.enabled=false or omits SSL configuration entirely while the application is deployed in a context accessible beyond a trusted private network"
@@ -427,7 +429,7 @@
       "part11_clauses": [
         "11.30"
       ],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
         "Record export or submission method serializes the record to JSON/XML and POSTs it to an external endpoint with no HMAC, RSA, or ECDSA signature appended to the payload \u2014 recipient cannot verify authenticity or detect in-transit modification",
         "No code in the codebase references java.security.Signature, javax.crypto.Mac, or a third-party signing library (e.g., Bouncy Castle) in the context of record transmission"
@@ -446,14 +448,14 @@
       "part11_clauses": [
         "11.30"
       ],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
-        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1",
-        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body \u2014 accepting any certificate including self-signed or revoked ones"
+        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1 \u2014 and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary",
+        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body \u2014 accepting any certificate including self-signed or revoked ones \u2014 and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary"
       ],
       "mapping_confidence": "medium",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected path transmits regulated records.",
+      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected SSL context is used in a transmission path that carries regulated electronic records across an open system network boundary (\u00a711.30 scope); TLS misconfiguration on non-regulated or internal monitoring paths is out of scope for this row.",
       "false_positive_traps": [
         "Disabled certificate validation in a test/dev profile only (detected by @Profile('dev') or if active profile is not production) is not a production finding \u2014 confirm the active deployment profile",
         "Legacy instrument integration may require older TLS versions as the instrument does not support TLS 1.2+ \u2014 document as a compensating control finding rather than a direct violation"

@@ -4,7 +4,7 @@
       "id": "P11-11.30-001",
       "finding_category": "No encryption of records transmitted over open networks",
       "part11_clauses": ["11.30"],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
         "HTTP client configuration (RestTemplate, OkHttpClient, WebClient) uses a plain http:// base URL for calls to external services that transmit regulated records — TLS is not enforced",
         "Spring Boot application.properties sets server.ssl.enabled=false or omits SSL configuration entirely while the application is deployed in a context accessible beyond a trusted private network"
@@ -21,7 +21,7 @@
       "id": "P11-11.30-002",
       "finding_category": "No digital signature on records transmitted to external parties",
       "part11_clauses": ["11.30"],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
         "Record export or submission method serializes the record to JSON/XML and POSTs it to an external endpoint with no HMAC, RSA, or ECDSA signature appended to the payload — recipient cannot verify authenticity or detect in-transit modification",
         "No code in the codebase references java.security.Signature, javax.crypto.Mac, or a third-party signing library (e.g., Bouncy Castle) in the context of record transmission"
@@ -38,14 +38,14 @@
       "id": "P11-11.30-003",
       "finding_category": "TLS configuration permits weak cipher suites or outdated protocol versions",
       "part11_clauses": ["11.30"],
-      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
       "code_patterns": [
-        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1",
-        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body — accepting any certificate including self-signed or revoked ones"
+        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1 — and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary",
+        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body — accepting any certificate including self-signed or revoked ones — and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary"
       ],
       "mapping_confidence": "medium",
       "gamp5_category": 5,
-      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected path transmits regulated records.",
+      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected SSL context is used in a transmission path that carries regulated electronic records across an open system network boundary (§11.30 scope); TLS misconfiguration on non-regulated or internal monitoring paths is out of scope for this row.",
       "false_positive_traps": [
         "Disabled certificate validation in a test/dev profile only (detected by @Profile('dev') or if active profile is not production) is not a production finding — confirm the active deployment profile",
         "Legacy instrument integration may require older TLS versions as the instrument does not support TLS 1.2+ — document as a compensating control finding rather than a direct violation"

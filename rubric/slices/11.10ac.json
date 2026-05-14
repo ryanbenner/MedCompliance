@@ -2,7 +2,7 @@
   "rows": [
     {
       "id": "P11-11.10a-001",
-      "finding_category": "Missing input validation on electronic record fields",
+      "finding_category": "Missing field-level constraint enforcement on regulated record persistence path",
       "part11_clauses": ["11.10(a)"],
       "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
       "code_patterns": [
@@ -16,7 +16,8 @@
       "false_positive_traps": [
         "Validation may be enforced at the database DDL level (NOT NULL, CHECK constraints) even when absent in application code — check migration scripts before calling this a finding",
         "A @Valid on the outer DTO may cascade to nested objects; inspect the full object graph before concluding validation is absent",
-        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class"
+        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class",
+        "XSS, SQL injection, and other generic input sanitization findings are explicitly out-of-scope for this row — this row fires only when regulated field data reaches a JPA/ORM persistence call without field-level constraints; do not use the finding_category as a keyword match for generic web sanitization findings"
       ]
     },
     {

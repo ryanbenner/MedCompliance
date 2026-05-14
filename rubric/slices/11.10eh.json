@@ -71,7 +71,7 @@
     },
     {
       "id": "P11-11.10h-001",
-      "finding_category": "No source-of-input validation on inbound data operations",
+      "finding_category": "Missing device-identity authentication on data ingestion endpoint",
       "part11_clauses": ["11.10(h)"],
       "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
       "code_patterns": [
