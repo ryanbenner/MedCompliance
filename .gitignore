@@ -1,0 +1,45 @@
+# Business plan & internal strategy docs — never commit
+BusinessPlan.pdf
+*.pdf
+
+# Local Claude Code settings (contain user-specific absolute paths)
+.claude/
+
+# Working-tree-only documentation
+docs/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Logs
+*.log
+
+# OS / misc
+Thumbs.db
