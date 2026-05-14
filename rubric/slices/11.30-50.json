@@ -1,0 +1,123 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.30-001",
+      "finding_category": "No encryption of records transmitted over open networks",
+      "part11_clauses": ["11.30"],
+      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "HTTP client configuration (RestTemplate, OkHttpClient, WebClient) uses a plain http:// base URL for calls to external services that transmit regulated records — TLS is not enforced",
+        "Spring Boot application.properties sets server.ssl.enabled=false or omits SSL configuration entirely while the application is deployed in a context accessible beyond a trusted private network"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the application endpoint or outbound client uses unencrypted HTTP for regulated record transmission; confirm the network path crosses an untrusted segment (open system context).",
+      "false_positive_traps": [
+        "TLS may be terminated at a load balancer or reverse proxy (e.g., nginx, AWS ALB) — the application-to-proxy leg may be HTTP while the external-facing endpoint is HTTPS; verify the full path",
+        "If the system is a closed system (§11.10) rather than an open system (§11.30), this specific clause does not apply — confirm the system classification"
+      ]
+    },
+    {
+      "id": "P11-11.30-002",
+      "finding_category": "No digital signature on records transmitted to external parties",
+      "part11_clauses": ["11.30"],
+      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "Record export or submission method serializes the record to JSON/XML and POSTs it to an external endpoint with no HMAC, RSA, or ECDSA signature appended to the payload — recipient cannot verify authenticity or detect in-transit modification",
+        "No code in the codebase references java.security.Signature, javax.crypto.Mac, or a third-party signing library (e.g., Bouncy Castle) in the context of record transmission"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the transmission path for regulated records to external parties includes no payload signature; confirm TLS alone is deemed insufficient for the authenticity requirement given the system's threat model.",
+      "false_positive_traps": [
+        "For most open-system transmissions TLS provides sufficient confidentiality and integrity — a digital signature on the payload is required only when non-repudiation or post-transmission tamper detection is needed; assess the regulatory context before raising",
+        "S/MIME or PGP email signing performed outside the application (e.g., by an email gateway) may satisfy this for email-based submissions"
+      ]
+    },
+    {
+      "id": "P11-11.30-003",
+      "finding_category": "TLS configuration permits weak cipher suites or outdated protocol versions",
+      "part11_clauses": ["11.30"],
+      "clause_quote": "document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1",
+        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body — accepting any certificate including self-signed or revoked ones"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected path transmits regulated records.",
+      "false_positive_traps": [
+        "Disabled certificate validation in a test/dev profile only (detected by @Profile('dev') or if active profile is not production) is not a production finding — confirm the active deployment profile",
+        "Legacy instrument integration may require older TLS versions as the instrument does not support TLS 1.2+ — document as a compensating control finding rather than a direct violation"
+      ]
+    },
+    {
+      "id": "P11-11.50-001",
+      "finding_category": "E-signature record missing printed name of signer",
+      "part11_clauses": ["11.50"],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer;",
+      "code_patterns": [
+        "Signature entity or DTO has fields for signer_id (foreign key) and signed_at (timestamp) but no printed_name or display_name column — the stored record does not contain the human-readable name of the signer at the time of signing",
+        "signRecord() service method persists the signature row using only the user's numeric ID; no join to retrieve and store the display name at signing time, meaning subsequent name changes would make the name unrecoverable for the historical record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Inspect the SignatureRecord entity or table schema for a printed name column; confirm the signing service does not capture the name at signing time; confirm a name change to the user account would make attribution incomplete.",
+      "false_positive_traps": [
+        "If the system stores the user ID and the user table is immutable (names cannot be changed), the name can be reconstructed at retrieval time — assess whether this constitutes 'contained in the record' per FDA interpretation",
+        "An audit report layer that dynamically joins user name at display time may render the printed name in human-readable output even if not stored in the signature row itself — assess the human-readable form output path"
+      ]
+    },
+    {
+      "id": "P11-11.50-002",
+      "finding_category": "E-signature record missing meaning/reason for signing",
+      "part11_clauses": ["11.50"],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer; (2) The date and time when the signature was executed; and (3) The meaning (such as review, approval, responsibility, or authorship) associated with the signature.",
+      "code_patterns": [
+        "SignatureRecord entity has no signature_meaning, signing_reason, or equivalent column — the stored row cannot indicate whether the signature represents review, approval, authorship, or another meaning",
+        "signRecord() method is called with only (recordId, userId) parameters — no signing reason is accepted or persisted"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signature table schema has no meaning/reason column; confirm the signing API accepts no meaning parameter; inspect any human-readable display of the signed record to confirm meaning is absent.",
+      "false_positive_traps": [
+        "Signing reason may be inferred from workflow state (e.g., signatures on records in APPROVED state always mean approval) — assess whether the system context makes the meaning unambiguous without explicit storage",
+        "A fixed-purpose signing workflow (only one action type ever signed) may have the meaning implicit; FDA guidance allows implicit meaning when context is unambiguous"
+      ]
+    },
+    {
+      "id": "P11-11.50-003",
+      "finding_category": "Signature metadata not included in human-readable record output",
+      "part11_clauses": ["11.50"],
+      "clause_quote": "The items identified in paragraphs (a)(1), (a)(2), and (a)(3) of this section shall be subject to the same controls as for electronic records and shall be included as part of any human readable form of the electronic record (such as electronic display or printout).",
+      "code_patterns": [
+        "PDF or HTML report generation method for a signed record renders the record content fields but omits the signature block (signer name, date/time, meaning) from the rendered output",
+        "Record printout template (e.g., Thymeleaf, Jasper Report) has no template variable or data binding for signature metadata — the rendered human-readable form shows only the record body"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Generate a human-readable output (PDF/HTML printout) of a signed record and confirm the signer name, signing timestamp, and meaning are absent from the rendered document.",
+      "false_positive_traps": [
+        "Signature block may be rendered by a parent template or layout that is not visible in the child template file — inspect the full template inheritance chain",
+        "An electronic display path and a printout path may differ — confirm the finding applies to both paths or note which is deficient"
+      ]
+    },
+    {
+      "id": "P11-11.50-004",
+      "finding_category": "Signing timestamp uses client-supplied time rather than server-generated time",
+      "part11_clauses": ["11.50"],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer; (2) The date and time when the signature was executed; and (3) The meaning (such as review, approval, responsibility, or authorship) associated with the signature.",
+      "code_patterns": [
+        "signRecord() service method reads the signing timestamp from the request body (e.g., request.getSignedAt()) and persists it directly — the client can supply an arbitrary past or future timestamp",
+        "SignatureRecord.signedAt is populated from a DTO field mapped from the JSON payload rather than from Instant.now() or a server-side clock call at the point of persistence"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signedAt value is sourced from the request payload; confirm it can be set to an arbitrary value by sending a custom timestamp in the POST body; confirm the server does not overwrite it with a server-generated timestamp.",
+      "false_positive_traps": [
+        "Client-supplied timestamps may be validated against a maximum skew window (e.g., reject if more than 5 minutes from server time) — a tight skew check partially mitigates the risk even if not fully compliant",
+        "Some architectures record both a client_timestamp and a server_received_at — if the server timestamp is what is displayed and stored as the official signing time, this pattern does not apply"
+      ]
+    }
+  ]
+}

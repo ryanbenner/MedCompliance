@@ -1,0 +1,123 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.10d-001",
+      "finding_category": "Plaintext credential storage in user entity",
+      "part11_clauses": ["11.10(d)"],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "JPA @Entity class declares @Column(name='password') private String password with no @Convert annotation and no password encoding call (e.g., BCryptPasswordEncoder.encode()) in the upstream save() or registration service method",
+        "PasswordEncoder bean is absent from the Spring Security configuration class — no @Bean method returning a PasswordEncoder or BCryptPasswordEncoder"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the password column stores raw text by inspecting the entity field, the save path, and a sample database row (hash pattern absent); confirm no PasswordEncoder is wired.",
+      "false_positive_traps": [
+        "An @Convert annotation using a custom AttributeConverter may perform encoding transparently — inspect the converter implementation before concluding storage is plaintext",
+        "Some entities store an OAuth token or API key in a field named 'password' that is not the user credential — confirm the field semantics"
+      ]
+    },
+    {
+      "id": "P11-11.10d-002",
+      "finding_category": "Unauthenticated access to sensitive actuator or admin endpoints",
+      "part11_clauses": ["11.10(d)"],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "Spring Security config calls .requestMatchers('/actuator/**').permitAll() or .requestMatchers('/admin/**').permitAll() without a compensating role restriction on a narrower matcher",
+        "WebSecurityCustomizer bean calls web.ignoring().requestMatchers('/actuator/**') bypassing the filter chain entirely for those paths"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the endpoint is reachable without a session or token by tracing the security filter chain; confirm the endpoint exposes regulated record data or system credentials (e.g., /actuator/env, /actuator/heapdump).",
+      "false_positive_traps": [
+        "Actuator endpoints may be restricted at the network/reverse-proxy layer even when the application allows them — verify network-layer controls before raising as a finding",
+        "/actuator/health and /actuator/info are commonly left open by design and carry no regulated data; restrict this finding to endpoints exposing credentials or record data"
+      ]
+    },
+    {
+      "id": "P11-11.10d-003",
+      "finding_category": "Missing authorization check before record retrieval by ID",
+      "part11_clauses": ["11.10(d)"],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "REST controller method annotated @GetMapping('/{id}') calls repository.findById(id) and returns the entity with no @PreAuthorize, no ownership check (e.g., entity.getOwnerId().equals(currentUserId())), and no role gate — allowing any authenticated user to retrieve any record by guessing the ID (IDOR)",
+        "Service method fetchRecord(Long id) has no SecurityContext lookup and no assertion that the requester owns or has been granted access to the specific record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the endpoint is reachable by a low-privileged authenticated user; confirm the ID space is guessable (sequential integer or short UUID); confirm a record belonging to a different user is returned.",
+      "false_positive_traps": [
+        "UUIDs with sufficient entropy may mitigate IDOR even without authorization checks — assess effective exploitability but still note the missing access control as a design gap",
+        "Multi-tenant filtering at the JPA layer (e.g., Hibernate @Filter on tenantId) may transparently enforce ownership — inspect the filter configuration"
+      ]
+    },
+    {
+      "id": "P11-11.10d-004",
+      "finding_category": "Session token not invalidated on logout",
+      "part11_clauses": ["11.10(d)"],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "Logout endpoint calls SecurityContextHolder.clearContext() but does not call HttpSession.invalidate() or TokenStore.removeAccessToken(), leaving the session or bearer token valid for reuse",
+        "JWT-based auth with no token revocation list (blacklist) and token expiry set longer than the session idle timeout — a stolen token remains valid past logout"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the logout endpoint does not invalidate server-side session; confirm a captured token or session cookie continues to return 200 on authenticated endpoints post-logout.",
+      "false_positive_traps": [
+        "Short-lived JWTs (e.g., 5-minute expiry) with refresh token rotation present a lower risk — assess effective window of exposure before severity rating",
+        "Token revocation may be handled by an API gateway or OAuth server outside the application codebase — check the full auth architecture"
+      ]
+    },
+    {
+      "id": "P11-11.10g-001",
+      "finding_category": "Missing authority checks before electronic signature operations",
+      "part11_clauses": ["11.10(g)"],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "signRecord() service method persists a signature row without calling hasAuthority('ROLE_SIGNER') or equivalent — any authenticated user can invoke the signing path",
+        "No @PreAuthorize or @Secured annotation on the controller method mapped to POST /records/{id}/sign"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signing endpoint accepts requests from a user without ROLE_SIGNER; confirm the resulting signature row is persisted; confirm no server-side role check exists in the call graph.",
+      "false_positive_traps": [
+        "Role enforcement may be delegated to an upstream API gateway — verify whether the application itself enforces the check or relies on a gateway contract",
+        "Workflow state-machine checks (e.g., record must be in DRAFT state to sign) may partially restrict signing but do not substitute for role-based authority checks"
+      ]
+    },
+    {
+      "id": "P11-11.10g-002",
+      "finding_category": "Unauthorized record alteration — no role gate on update endpoint",
+      "part11_clauses": ["11.10(g)"],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "REST controller @PutMapping or @PatchMapping for a regulated record entity has no @PreAuthorize annotation and no in-method role check — any authenticated user can alter the record",
+        "Bulk update service method updateAllRecords() has no caller role assertion and is reachable from a non-privileged API endpoint"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm PUT/PATCH endpoint returns 200 for a user without an editor or admin role; confirm the entity is mutated in the database.",
+      "false_positive_traps": [
+        "Ownership-based update (user can only update their own draft records) may be compliant for certain record types — assess whether the SOP requires a separate approver role",
+        "Read-only replicas or archived records may intentionally block updates at the database layer even when the application endpoint is unguarded"
+      ]
+    },
+    {
+      "id": "P11-11.10g-003",
+      "finding_category": "Authority check configuration in YAML/properties — missing or overly permissive role definitions",
+      "part11_clauses": ["11.10(g)"],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "application.yml or security-roles.yaml defines a role hierarchy where ROLE_USER inherits ROLE_SIGNER or ROLE_APPROVER, granting all users signing authority by default",
+        "Role definition configuration file assigns all permissions to a default role with no explicit exclusion of signing or record-alteration permissions"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 4,
+      "evidence_needed": "Read the role hierarchy configuration; trace effective permissions of ROLE_USER to confirm it includes ROLE_SIGNER or equivalent signing permission.",
+      "false_positive_traps": [
+        "Role inheritance in configuration may be intentional for a specific deployment context — compare against the system's access control SOP before raising",
+        "A separate identity provider (IdP) may override application-level role definitions — confirm which role source is authoritative"
+      ]
+    }
+  ]
+}

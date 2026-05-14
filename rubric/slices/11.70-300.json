@@ -1,0 +1,191 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.70-001",
+      "finding_category": "No cryptographic link between signature row and signed record",
+      "part11_clauses": ["11.70"],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "SignatureRecord entity has a record_id foreign key to the signed record but no record_hash column storing a digest (e.g., SHA-256) of the signed record's content at the time of signing — a post-signing edit to the record content is undetectable by inspecting the signature row",
+        "signRecord() service method persists the signature with only a foreign key reference; no hash of the record's serialized content is computed and stored alongside the signature"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm SignatureRecord schema has no content hash column; confirm that modifying the signed record's fields after signing does not invalidate the signature; confirm no trigger or application check validates hash integrity on record retrieval.",
+      "false_positive_traps": [
+        "Immutable records (append-only storage, database row-level locking preventing updates after signing) can satisfy the linking requirement without a hash — assess whether the record is truly immutable post-signing",
+        "A digital signature (asymmetric key signature over record content) subsumes the hash requirement — check for any RSA/ECDSA signing of the record body before concluding linking is absent"
+      ]
+    },
+    {
+      "id": "P11-11.70-002",
+      "finding_category": "Signature row deletable or reassignable without cascading invalidation",
+      "part11_clauses": ["11.70"],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "SignatureRepository exposes deleteById() or delete() callable from a service method without an immutability guard — an application user with sufficient privilege can excise a signature from a record",
+        "SignatureRecord.recordId can be updated via a setter or @Modifying @Query — the signature can be reassigned to a different record, constituting a transfer to falsify another record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm a signature row can be deleted or its record_id updated via the application API; confirm the signed record does not detect or flag the missing or reassigned signature.",
+      "false_positive_traps": [
+        "Superuser-only deletion for regulatory purge holds is a legitimate need — the finding applies when non-privileged roles can excise signatures",
+        "A soft-delete (is_deleted flag) on signatures may be acceptable if the original record and a flag indicating deletion are preserved and retrievable"
+      ]
+    },
+    {
+      "id": "P11-11.70-003",
+      "finding_category": "Signature hash computed over partial record content",
+      "part11_clauses": ["11.70"],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "computeRecordHash() method serializes only a subset of the entity's fields (e.g., result fields but not status, reviewer notes, or version) — mutations to excluded fields are not detected by the stored hash",
+        "Hash is computed over the record's toString() output which excludes transient or lazily-loaded fields that are part of the regulated record content"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare the set of fields included in the hash computation against the complete set of regulated fields in the entity; confirm that modifying an excluded field does not change the stored hash.",
+      "false_positive_traps": [
+        "Internal system fields (e.g., JPA version counter, cache busting timestamps) are legitimately excluded from content hashes — only regulated data fields matter for this finding",
+        "A canonical serialization that is documented and stable is sufficient even if it excludes some entity fields, provided the excluded fields are not part of the regulated record content"
+      ]
+    },
+    {
+      "id": "P11-11.100-001",
+      "finding_category": "Electronic signature ID reuse or reassignment allowed by code",
+      "part11_clauses": ["11.100"],
+      "clause_quote": "Each electronic signature shall be unique to one individual and shall not be reused by, or reassigned to, anyone else.",
+      "code_patterns": [
+        "User entity allows the username or email (used as the electronic signature identifier) to be updated via a PUT /users/{id} endpoint with no guard preventing reuse of a previously assigned identifier — a deactivated user's username can be reassigned to a new user",
+        "No UNIQUE constraint on the username or signature_id column in the database migration scripts, allowing the same identifier to be assigned to multiple users over time"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the user identifier field has no UNIQUE database constraint or that the application permits username reassignment; confirm a deactivated user's identifier can be given to a new user.",
+      "false_positive_traps": [
+        "UUID-based user IDs are globally unique by construction — if the signature identifier is the UUID (not the username), reassignment is not possible; confirm which field serves as the electronic signature identifier",
+        "SSO/IdP-managed identities may enforce uniqueness externally — confirm whether the application enforces it independently"
+      ]
+    },
+    {
+      "id": "P11-11.100-002",
+      "finding_category": "No identity verification before electronic signature provisioning",
+      "part11_clauses": ["11.100"],
+      "clause_quote": "Before an organization establishes, assigns, certifies, or otherwise sanctions an individual's electronic signature, or any element of such electronic signature, the organization shall verify the identity of the individual.",
+      "code_patterns": [
+        "User registration endpoint allows self-service account creation with only an email and password — no identity verification step (email confirmation, manager approval, identity document check) is enforced before the account can be used to sign records",
+        "UserService.createUser() method immediately sets account status to ACTIVE and signing_enabled=true with no pending verification state and no admin approval workflow"
+      ],
+      "mapping_confidence": "low",
+      "gamp5_category": 5,
+      "evidence_needed": "This clause is primarily procedural; code-level signal is the absence of any approval workflow or identity verification state in the user provisioning path. Low confidence because compliant identity verification may occur outside the application (e.g., HR onboarding). Confirm SOPs and onboarding records separately.",
+      "false_positive_traps": [
+        "Identity verification may be enforced by an upstream IdP or HR system external to the application — absence of verification code in the application is not a finding if an external process is documented",
+        "Email confirmation alone may satisfy some interpretations of identity verification for low-risk contexts — assess the regulatory context and system risk classification"
+      ]
+    },
+    {
+      "id": "P11-11.200-001",
+      "finding_category": "Single-factor authentication used for electronic signature",
+      "part11_clauses": ["11.200"],
+      "clause_quote": "Employ at least two distinct identification components such as an identification code and password.",
+      "code_patterns": [
+        "signRecord() service method requires only a re-entry of the user's password (one factor) to authorize a signature — no second factor (TOTP, hardware token, PIN) is required or checked",
+        "Electronic signature endpoint authenticates the signing action by verifying only the Bearer JWT token already in the session — no additional credential challenge is presented at signing time"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signing endpoint requires only one credential; trace the authentication call graph to confirm only one factor is verified before the signature is persisted.",
+      "false_positive_traps": [
+        "If the user executed a full two-factor login during the same continuous controlled-access session (§11.200(a)(1)(i)), subsequent signings may use only one component — assess whether the session context is continuous and controlled",
+        "Biometric signatures (§11.200(b)) are exempt from the two-component requirement — confirm the signing mechanism is not biometric-based"
+      ]
+    },
+    {
+      "id": "P11-11.200-002",
+      "finding_category": "Electronic signature components not unique to owner — shared credentials allowed",
+      "part11_clauses": ["11.200"],
+      "clause_quote": "Be used only by their genuine owners; and (3) Be administered and executed to ensure that attempted use of an individual's electronic signature by anyone other than its genuine owner requires collaboration of two or more individuals.",
+      "code_patterns": [
+        "Shared service account (e.g., lab-admin, system-user) is used to sign records — the account's credentials are known to multiple individuals, defeating uniqueness",
+        "No enforcement in code preventing a user from sharing their password: no concurrent session detection, no device binding, and no anomaly detection for simultaneous logins from different IPs signing records"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm records are signed under a shared account by inspecting the signer_id of signature rows; confirm the account credentials are accessible to more than one individual via shared secrets.",
+      "false_positive_traps": [
+        "Service accounts for automated system-to-system integrations that do not constitute 'electronic signatures' under Part 11 are not implicated — confirm the signature use case",
+        "MFA with a hardware token bound to one person mitigates shared-password risk even if the password itself is shared — assess the full authentication chain"
+      ]
+    },
+    {
+      "id": "P11-11.300-001",
+      "finding_category": "No password uniqueness enforcement — duplicate credential pairs allowed",
+      "part11_clauses": ["11.300"],
+      "clause_quote": "Maintaining the uniqueness of each combined identification code and password, such that no two individuals have the same combination of identification code and password.",
+      "code_patterns": [
+        "User registration or password-change service does not check whether the new (username, password) combination already exists for another user — no query against existing credentials to detect duplication (noting that hashed passwords require a different uniqueness strategy, e.g., unique username alone with individual password hashes)",
+        "No UNIQUE constraint on the username column in database migration scripts, allowing two users to share the same identification code"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm username uniqueness is not enforced at the database level (no UNIQUE constraint) and not enforced in the application service layer; confirm two users can register with the same username.",
+      "false_positive_traps": [
+        "When passwords are properly hashed, enforcing identical (username+password) combinations at the application layer is impractical — the uniqueness requirement is effectively satisfied by enforcing unique usernames alone; confirm username uniqueness rather than searching for duplicate hashed passwords",
+        "Email-as-username with a UNIQUE constraint on the email column satisfies this requirement even if not labeled 'username'"
+      ]
+    },
+    {
+      "id": "P11-11.300-002",
+      "finding_category": "No password aging or periodic credential review",
+      "part11_clauses": ["11.300"],
+      "clause_quote": "Ensuring that identification code and password issuances are periodically checked, recalled, or revised (e.g., to cover such events as password aging).",
+      "code_patterns": [
+        "No @Scheduled job or password expiry logic in the codebase — User entity has no password_last_changed or password_expires_at column, and no forced re-authentication or password reset is triggered after any configurable period",
+        "application.properties has no security.password.max-age or equivalent property, and no password rotation policy is enforced in the UserService"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm User entity lacks password_expires_at or equivalent; confirm no scheduled job or login-time check enforces password rotation; note that NIST 800-63B recommends against mandatory periodic rotation absent breach — assess regulatory context and SOP requirements.",
+      "false_positive_traps": [
+        "Modern NIST guidance (SP 800-63B) discourages mandatory periodic password changes unless compromise is suspected — FDA Part 11 does not prescribe a specific rotation interval; absence of rotation may be a deliberate, defensible policy choice",
+        "Password rotation may be enforced by the IdP (e.g., Active Directory group policy) external to the application — absence in the application code is not a finding if IdP policy is documented"
+      ]
+    },
+    {
+      "id": "P11-11.300-003",
+      "finding_category": "No detection or reporting of unauthorized credential use attempts",
+      "part11_clauses": ["11.300"],
+      "clause_quote": "Use of transaction safeguards to prevent unauthorized use of passwords and/or identification codes, and to detect and report in an immediate and urgent manner any attempts at their unauthorized use to the system security unit, and, as appropriate, to organizational management.",
+      "code_patterns": [
+        "Authentication failure handler logs the failed attempt to a general application log but does not trigger an alert, increment a lockout counter, or publish a security event to a monitoring system — no call to securityEventPublisher.publishLoginFailure() or equivalent",
+        "No account lockout logic: failed login attempts are not counted in the User entity or a distributed cache; brute-force attacks will not trigger a lockout or alert"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm authentication failure handler has no lockout counter increment and no alert publication; confirm User entity has no failed_attempts or locked_until field; confirm monitoring system receives no security event on repeated failures.",
+      "false_positive_traps": [
+        "Rate limiting at an API gateway or WAF may prevent brute force even without application-level lockout — assess the full defense-in-depth stack before raising as a standalone finding",
+        "Log aggregation tools (Splunk, ELK) may alert on repeated authentication failures via log pattern matching external to the application — confirm whether this constitutes 'immediate and urgent' reporting as required"
+      ]
+    },
+    {
+      "id": "P11-11.300-004",
+      "finding_category": "No loss management — compromised tokens not electronically deauthorized",
+      "part11_clauses": ["11.300"],
+      "clause_quote": "Following loss management procedures to electronically deauthorize lost, stolen, missing, or otherwise potentially compromised tokens, cards, and other devices that bear or generate identification code or password information, and to issue temporary or permanent replacements using suitable, rigorous controls.",
+      "code_patterns": [
+        "JWT-based authentication with no token revocation mechanism — no blacklist table, no Redis revocation set, and token expiry is the only mechanism to invalidate a compromised token; there is no admin endpoint to revoke a specific user's tokens immediately",
+        "No UserService.revokeAllTokens(userId) method exists and no token_revoked_at or force_logout_at field on the User entity that would invalidate outstanding JWTs"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm there is no token revocation endpoint; confirm a captured JWT continues to authenticate successfully after the account is reported compromised (until natural expiry); confirm token TTL is long enough to present a material risk window.",
+      "false_positive_traps": [
+        "Short-lived JWTs (e.g., 5-minute access tokens) with opaque refresh tokens that are revocable substantially mitigate this — assess whether the access token TTL is short enough to limit the exposure window",
+        "Stateful sessions (server-side session store) can be invalidated immediately regardless of token format — this pattern applies only to stateless JWT architectures"
+      ]
+    }
+  ]
+}
