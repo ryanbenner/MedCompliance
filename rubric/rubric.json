@@ -1,0 +1,750 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.10a-001",
+      "finding_category": "Missing field-level constraint enforcement on regulated record persistence path",
+      "part11_clauses": [
+        "11.10(a)"
+      ],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "Service or controller method accepts a record payload (e.g., @RequestBody) and directly persists it via repository.save() with no @Valid annotation and no explicit field-level validation before the call",
+        "Entity setter or constructor accepts a String parameter for a regulated field (e.g., lotNumber, specimenId) without length, format, or null checks \u2014 no @NotNull/@Pattern annotation and no guard clause",
+        "No unit or integration test class in the project exercises a save path with an out-of-range or malformed value for regulated record fields"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Trace the save() call graph from the API endpoint to persistence layer; confirm absence of @Valid, Validator.validate(), or equivalent guard; confirm no schema-level constraint in the ORM mapping for the field in question.",
+      "false_positive_traps": [
+        "Validation may be enforced at the database DDL level (NOT NULL, CHECK constraints) even when absent in application code \u2014 check migration scripts before calling this a finding",
+        "A @Valid on the outer DTO may cascade to nested objects; inspect the full object graph before concluding validation is absent",
+        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class",
+        "XSS, SQL injection, and other generic input sanitization findings are explicitly out-of-scope for this row \u2014 this row fires only when regulated field data reaches a JPA/ORM persistence call without field-level constraints; do not use the finding_category as a keyword match for generic web sanitization findings"
+      ]
+    },
+    {
+      "id": "P11-11.10a-002",
+      "finding_category": "No checksum or hash verification on retrieved electronic records",
+      "part11_clauses": [
+        "11.10(a)"
+      ],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "Record retrieval service (findById, fetchRecord) returns a deserialized entity with no integrity check \u2014 no comparison of a stored hash/checksum field against a freshly computed digest of the record's content fields",
+        "Entity class declares no @Column for a hash or checksum field, and there is no @PostLoad callback computing one"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Review the entity class for a checksum/hash column; review the repository or service layer for any digest computation on load; absence of both is the finding.",
+      "false_positive_traps": [
+        "Some systems rely on database transaction isolation rather than application-level checksums \u2014 this is an architectural choice, not necessarily non-compliant; inspector must assess whether the system can discern altered records by other means",
+        "A separate audit trail (see 11.10(e)) that records every mutation can substitute for per-record checksums for discerning alteration"
+      ]
+    },
+    {
+      "id": "P11-11.10a-003",
+      "finding_category": "No IQ/OQ/PQ test coverage for regulated record operations",
+      "part11_clauses": [
+        "11.10(a)"
+      ],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "No test class in the codebase exercises the create, update, or delete path for regulated entity types with assertions on returned values \u2014 measured by finding zero @Test methods whose names or body reference the regulated entity name and a persistence call",
+        "Test directory is absent or contains only smoke tests with no assertion on record field values after persistence"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Enumerate all @Test/@ParameterizedTest methods; filter for those exercising regulated entity persistence; confirm no assertion on post-save field values. IQ/OQ/PQ documentation gap must be confirmed separately.",
+      "false_positive_traps": [
+        "External validation protocol documents (IQ/OQ/PQ scripts in PDF) are the primary evidence for 11.10(a) validation \u2014 absence of automated tests alone is insufficient if manual protocol records exist",
+        "A project may use BDD/Cucumber feature files not discovered by a grep for @Test \u2014 check all test directories"
+      ]
+    },
+    {
+      "id": "P11-11.10a-004",
+      "finding_category": "Mutable entity allows post-save field overwrite without version guard",
+      "part11_clauses": [
+        "11.10(a)"
+      ],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "JPA entity class has public setters on all regulated fields and no @Version field, enabling a lost-update scenario where two concurrent writers silently overwrite each other's changes",
+        "Repository exposes a bulk update method (e.g., @Modifying @Query('UPDATE ...')) with no WHERE clause version check"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm entity has no @Version field; confirm service layer has no optimistic-lock retry or pessimistic-lock annotation; reproduce with a concurrent test or review transaction isolation level.",
+      "false_positive_traps": [
+        "Database-level serializable isolation may prevent lost updates even without @Version \u2014 confirm transaction isolation level before raising",
+        "Read-only entities with no update path are not implicated by this pattern"
+      ]
+    },
+    {
+      "id": "P11-11.10c-001",
+      "finding_category": "Missing retention enforcement \u2014 records deletable before retention period expires",
+      "part11_clauses": [
+        "11.10(c)"
+      ],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "Repository exposes a deleteById() or delete() method callable from a service or REST endpoint with no guard checking a retentionExpiry or deletionAllowed flag on the record",
+        "Soft-delete pattern absent: entity has no @Column for deleted_at or is_archived, and hard-delete is the only deletion path in the codebase"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm deleteById/delete is reachable from a non-admin endpoint with no retention-period check; confirm entity lacks soft-delete columns; confirm no scheduled job enforces a retention hold.",
+      "false_positive_traps": [
+        "Admin-only delete endpoints protected by role checks (ROLE_ADMIN) may be compliant depending on SOPs \u2014 inspect whether the admin role is tightly controlled",
+        "Cascade deletes on parent entities may appear to delete records indirectly \u2014 trace cascade relationships before concluding records are unprotected"
+      ]
+    },
+    {
+      "id": "P11-11.10c-002",
+      "finding_category": "Archive or export path produces incomplete record copies",
+      "part11_clauses": [
+        "11.10(c)"
+      ],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "Export/archive method serializes only a subset of entity fields (e.g., a hand-written toExportDto() that omits audit timestamps, signer ID, or version fields) resulting in a retrievable copy lacking fields required for accurate reproduction",
+        "A scheduled archival job moves records to cold storage but truncates or omits columns flagged as 'internal' in the mapping"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare the entity field list against the serialized output of the export method; identify omitted fields; confirm those fields are required for record accuracy under the relevant records requirement.",
+      "false_positive_traps": [
+        "Some fields are legitimately excluded from exports (e.g., internal cache columns) \u2014 only regulated data fields are in scope for this finding",
+        "A separate archival system may store the complete record even if the application-level export is partial"
+      ]
+    },
+    {
+      "id": "P11-11.10c-003",
+      "finding_category": "No retrieval test confirming records survive retention period boundary",
+      "part11_clauses": [
+        "11.10(c)"
+      ],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "No integration test or validation script exercises a read path for a record whose creation date is older than the configured retention period \u2014 i.e., no test seeds an old-dated record and asserts it is still retrievable",
+        "Application has a configurable DATA_RETENTION_YEARS property but no automated check that reads records aged past that boundary to confirm they exist"
+      ],
+      "mapping_confidence": "low",
+      "gamp5_category": 5,
+      "evidence_needed": "Review test suite for any test that seeds records with past dates and asserts retrieval after a simulated retention period boundary; absence is a low-confidence code-level signal only \u2014 primary evidence is validation protocol documents.",
+      "false_positive_traps": [
+        "Database backups and archival infrastructure outside the application codebase can satisfy retrieval requirements \u2014 code-level absence is not sufficient alone",
+        "Cloud-managed storage with retention locks (e.g., S3 Object Lock) may satisfy this independent of application code"
+      ]
+    },
+    {
+      "id": "P11-11.10d-001",
+      "finding_category": "Plaintext credential storage in user entity",
+      "part11_clauses": [
+        "11.10(d)"
+      ],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "JPA @Entity class declares @Column(name='password') private String password with no @Convert annotation and no password encoding call (e.g., BCryptPasswordEncoder.encode()) in the upstream save() or registration service method",
+        "PasswordEncoder bean is absent from the Spring Security configuration class \u2014 no @Bean method returning a PasswordEncoder or BCryptPasswordEncoder"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the password column stores raw text by inspecting the entity field, the save path, and a sample database row (hash pattern absent); confirm no PasswordEncoder is wired. [Disambiguation: this row addresses credential storage failure — the specific access-control failure mode is that plaintext credentials can be exfiltrated and replayed to gain unauthorized system access, implicating the 'limiting system access' requirement directly at the credential layer.]",
+      "false_positive_traps": [
+        "An @Convert annotation using a custom AttributeConverter may perform encoding transparently \u2014 inspect the converter implementation before concluding storage is plaintext",
+        "Some entities store an OAuth token or API key in a field named 'password' that is not the user credential \u2014 confirm the field semantics"
+      ]
+    },
+    {
+      "id": "P11-11.10d-002",
+      "finding_category": "Unauthenticated access to sensitive actuator or admin endpoints",
+      "part11_clauses": [
+        "11.10(d)"
+      ],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "Spring Security config calls .requestMatchers('/actuator/**').permitAll() or .requestMatchers('/admin/**').permitAll() without a compensating role restriction on a narrower matcher",
+        "WebSecurityCustomizer bean calls web.ignoring().requestMatchers('/actuator/**') bypassing the filter chain entirely for those paths"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the endpoint is reachable without a session or token by tracing the security filter chain; confirm the endpoint exposes regulated record data or system credentials (e.g., /actuator/env, /actuator/heapdump). [Disambiguation: this row addresses unauthenticated endpoint exposure — the specific access-control failure mode is missing authentication at the HTTP security filter layer for management/admin paths, not credential storage (d-001), not per-record ownership authorization (d-003), and not session lifecycle management (d-004).]",
+      "false_positive_traps": [
+        "Actuator endpoints may be restricted at the network/reverse-proxy layer even when the application allows them \u2014 verify network-layer controls before raising as a finding",
+        "/actuator/health and /actuator/info are commonly left open by design and carry no regulated data; restrict this finding to endpoints exposing credentials or record data"
+      ]
+    },
+    {
+      "id": "P11-11.10d-003",
+      "finding_category": "Missing authorization check before record retrieval by ID",
+      "part11_clauses": [
+        "11.10(d)"
+      ],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "REST controller method annotated @GetMapping('/{id}') calls repository.findById(id) and returns the entity with no @PreAuthorize, no ownership check (e.g., entity.getOwnerId().equals(currentUserId())), and no role gate \u2014 allowing any authenticated user to retrieve any record by guessing the ID (IDOR)",
+        "Service method fetchRecord(Long id) has no SecurityContext lookup and no assertion that the requester owns or has been granted access to the specific record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the endpoint is reachable by a low-privileged authenticated user; confirm the ID space is guessable (sequential integer or short UUID); confirm a record belonging to a different user is returned. Confirm that the record returned by the endpoint is an electronic record subject to Part 11 (i.e., a regulated record type, not a non-regulated resource such as user profile photos, settings, or other non-regulated data). [Disambiguation: this row addresses per-record ownership authorization failure (IDOR) \u2014 the specific access-control failure mode is missing cross-user access gate at the record retrieval level for Part 11-regulated records, distinct from missing authentication (d-002), credential storage (d-001), and session lifecycle (d-004).]",
+      "false_positive_traps": [
+        "UUIDs with sufficient entropy may mitigate IDOR even without authorization checks \u2014 assess effective exploitability but still note the missing access control as a design gap",
+        "Multi-tenant filtering at the JPA layer (e.g., Hibernate @Filter on tenantId) may transparently enforce ownership \u2014 inspect the filter configuration",
+        "IDOR on non-regulated resources (user profile photos, application settings, non-Part-11 data) is out of scope for this row \u2014 confirm the retrieved record type is subject to Part 11 before raising"
+      ]
+    },
+    {
+      "id": "P11-11.10d-004",
+      "finding_category": "Session token not invalidated on logout",
+      "part11_clauses": [
+        "11.10(d)"
+      ],
+      "clause_quote": "Limiting system access to authorized individuals.",
+      "code_patterns": [
+        "Logout endpoint calls SecurityContextHolder.clearContext() but does not call HttpSession.invalidate() or TokenStore.removeAccessToken(), leaving the stateful server-side session or opaque bearer token valid for reuse \u2014 applies to HttpSession-based and stateful token-store architectures only",
+        "Spring Security logout handler is configured with .logoutSuccessUrl('/login') but no .invalidateHttpSession(true) or .deleteCookies('JSESSIONID'), leaving the session active in the server-side session store after the user has logged out"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the logout endpoint does not invalidate the server-side session (HttpSession.invalidate() absent) and that a captured session cookie continues to return 200 on authenticated endpoints post-logout. This row applies to stateful session architectures; JWT stateless token revocation absence is addressed by P11-11.300-004, not this row. [Disambiguation: this row addresses live session invalidation failure at logout \u2014 the specific access-control failure mode is that a logged-out user's stateful session remains usable, distinct from credential storage (d-001), unauthenticated endpoint exposure (d-002), and per-record ownership authorization (d-003).]",
+      "false_positive_traps": [
+        "JWT-based stateless authentication architectures are out of scope for this row \u2014 JWT token revocation absence (no blacklist/revocation store) is covered by P11-11.300-004, not here; applying both rows to the same JWT implementation creates a duplicate finding",
+        "Token revocation may be handled by an API gateway or OAuth server outside the application codebase \u2014 check the full auth architecture before raising"
+      ]
+    },
+    {
+      "id": "P11-11.10g-001",
+      "finding_category": "Missing authority checks before electronic signature operations",
+      "part11_clauses": [
+        "11.10(g)"
+      ],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "signRecord() service method persists a signature row without calling hasAuthority('ROLE_SIGNER') or equivalent \u2014 any authenticated user can invoke the signing path",
+        "No @PreAuthorize or @Secured annotation on the controller method mapped to POST /records/{id}/sign"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signing endpoint accepts requests from a user without ROLE_SIGNER; confirm the resulting signature row is persisted; confirm no server-side role check exists in the call graph.",
+      "false_positive_traps": [
+        "Role enforcement may be delegated to an upstream API gateway \u2014 verify whether the application itself enforces the check or relies on a gateway contract",
+        "Workflow state-machine checks (e.g., record must be in DRAFT state to sign) may partially restrict signing but do not substitute for role-based authority checks"
+      ]
+    },
+    {
+      "id": "P11-11.10g-002",
+      "finding_category": "Unauthorized record alteration \u2014 no role gate on update endpoint",
+      "part11_clauses": [
+        "11.10(g)"
+      ],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "REST controller @PutMapping or @PatchMapping for a regulated record entity has no @PreAuthorize annotation and no in-method role check \u2014 any authenticated user can alter the record",
+        "Bulk update service method updateAllRecords() has no caller role assertion and is reachable from a non-privileged API endpoint"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm PUT/PATCH endpoint returns 200 for a user without an editor or admin role; confirm the entity is mutated in the database.",
+      "false_positive_traps": [
+        "Ownership-based update (user can only update their own draft records) may be compliant for certain record types \u2014 assess whether the SOP requires a separate approver role",
+        "Read-only replicas or archived records may intentionally block updates at the database layer even when the application endpoint is unguarded"
+      ]
+    },
+    {
+      "id": "P11-11.10g-003",
+      "finding_category": "Authority check configuration in YAML/properties \u2014 missing or overly permissive role definitions",
+      "part11_clauses": [
+        "11.10(g)"
+      ],
+      "clause_quote": "Use of authority checks to ensure that only authorized individuals can use the system, electronically sign a record, access the operation or computer system input or output device, alter a record, or perform the operation at hand.",
+      "code_patterns": [
+        "application.yml or security-roles.yaml defines a role hierarchy where ROLE_USER inherits ROLE_SIGNER or ROLE_APPROVER, granting all users signing authority by default",
+        "Role definition configuration file assigns all permissions to a default role with no explicit exclusion of signing or record-alteration permissions"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 4,
+      "evidence_needed": "Read the role hierarchy configuration; trace effective permissions of ROLE_USER to confirm it includes ROLE_SIGNER or equivalent signing permission.",
+      "false_positive_traps": [
+        "Role inheritance in configuration may be intentional for a specific deployment context \u2014 compare against the system's access control SOP before raising",
+        "A separate identity provider (IdP) may override application-level role definitions \u2014 confirm which role source is authoritative"
+      ]
+    },
+    {
+      "id": "P11-11.10e-001",
+      "finding_category": "No audit trail on entity create/update/delete",
+      "part11_clauses": [
+        "11.10(e)"
+      ],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records.",
+      "code_patterns": [
+        "JPA @Entity class has no @EntityListeners(AuditingEntityListener.class) annotation, no @CreatedDate/@LastModifiedDate fields, no @PrePersist/@PreUpdate lifecycle callbacks writing to an audit log table, and no surrounding AOP @Aspect with a @AfterReturning advice on repository.save()",
+        "Service method updateRecord() calls repository.save(entity) with no subsequent call to auditLogRepository.save() or auditEventPublisher.publish()"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Trace the full call graph from the service update method to persistence; confirm no audit write exists at any layer (entity listener, AOP, event listener, DB trigger visible in migration scripts).",
+      "false_positive_traps": [
+        "Database triggers in migration scripts (e.g., Flyway/Liquibase) may write to an audit table without any application-level code \u2014 inspect migration files before concluding audit trail is absent",
+        "An infrastructure-level CDC (Change Data Capture) stream (e.g., Debezium) may capture all changes externally \u2014 this satisfies the requirement even if no application-level audit code exists",
+        "Spring Data JPA @CreatedDate/@LastModifiedDate with @EnableJpaAuditing satisfies timestamping of the record itself but does NOT write a separate audit trail entry \u2014 distinguish between in-row timestamps and an independent audit log"
+      ]
+    },
+    {
+      "id": "P11-11.10e-002",
+      "finding_category": "Audit trail records overwritable by application",
+      "part11_clauses": [
+        "11.10(e)"
+      ],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records. Record changes shall not obscure previously recorded information.",
+      "code_patterns": [
+        "AuditLog entity exposes a public setter on its content, timestamp, or userId field and the corresponding repository has no @PreUpdate guard preventing modification of existing audit rows",
+        "AuditLogRepository extends JpaRepository<AuditLog, Long> exposing deleteById() callable from a service layer method without restriction to a superuser-only path"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm an existing audit log row can be updated or deleted via the application API without superuser escalation; inspect the database grant \u2014 the application DB user should have INSERT-only on audit tables, not UPDATE/DELETE.",
+      "false_positive_traps": [
+        "Soft-delete on audit records (setting is_deleted=true) rather than physical DELETE may be acceptable depending on whether the original entry remains retrievable \u2014 assess retrieval path",
+        "Superuser-only deletion for compliance holds purges is a legitimate operational need; the finding applies only when non-privileged application roles can delete audit rows"
+      ]
+    },
+    {
+      "id": "P11-11.10e-003",
+      "finding_category": "Audit trail missing operator identity",
+      "part11_clauses": [
+        "11.10(e)"
+      ],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records.",
+      "code_patterns": [
+        "AuditLog entity has timestamp and action fields but no userId or username column \u2014 the recorded entry cannot be attributed to the individual who performed the action",
+        "Audit write code retrieves the current user as a system service account (e.g., always writes userId='system') rather than reading from SecurityContextHolder.getContext().getAuthentication().getName()"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Inspect the AuditLog entity schema for a user identifier column; inspect the audit write path to confirm it sources the identity from the authenticated principal, not a hardcoded constant.",
+      "false_positive_traps": [
+        "Audit records in a shared-service architecture may record the calling service identity rather than end-user identity \u2014 assess whether the calling service passes the delegated user context in a header that is captured",
+        "Batch jobs running as a service account legitimately record the service account identity \u2014 apply this pattern only to interactive user-driven operations"
+      ]
+    },
+    {
+      "id": "P11-11.10e-004",
+      "finding_category": "Audit trail retention shorter than record retention",
+      "part11_clauses": [
+        "11.10(e)"
+      ],
+      "clause_quote": "Such audit trail documentation shall be retained for a period at least as long as that required for the subject electronic records and shall be available for agency review and copying.",
+      "code_patterns": [
+        "Scheduled @Scheduled(cron=...) purge job deletes AuditLog rows older than a configured audit.retention.days property, but the subject record retention period (record.retention.years) is longer \u2014 audit rows are purged before the records they describe",
+        "Application configuration file sets audit.retention.days=365 while the regulatory requirement for the subject records is 2+ years"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare audit.retention.days/years config value against the regulatory retention requirement for the subject records; confirm the purge job uses the shorter value.",
+      "false_positive_traps": [
+        "Audit logs may be archived to cold storage rather than deleted \u2014 confirm that purged-from-database rows are truly unrecoverable and not archived elsewhere",
+        "The regulatory retention period may vary by record type \u2014 confirm the comparison is made for the same record category"
+      ]
+    },
+    {
+      "id": "P11-11.10h-001",
+      "finding_category": "Missing device-identity authentication on data ingestion endpoint",
+      "part11_clauses": [
+        "11.10(h)"
+      ],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Data ingestion endpoint accepts POST requests with no validation of a client certificate, API key, or registered device identifier \u2014 any network client can submit data as if it were a trusted instrument or terminal",
+        "Instrument data import service reads from a file drop directory with no hash verification of the file source or digital signature on the payload \u2014 a file placed by any process is treated as originating from a trusted device"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the ingestion endpoint or file import path accepts input without any device or client authentication; confirm data is persisted as a regulated record without source validation.",
+      "false_positive_traps": [
+        "Network-layer mTLS termination at a load balancer or API gateway may enforce device certificates even when the application code does not check them \u2014 verify end-to-end trust chain",
+        "For internal lab instruments on an isolated network segment, device-level authentication may be satisfied by network controls rather than application code"
+      ]
+    },
+    {
+      "id": "P11-11.10h-002",
+      "finding_category": "Operational instruction accepted from unauthenticated source",
+      "part11_clauses": [
+        "11.10(h)"
+      ],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Internal REST or message-queue consumer processes instrument control commands (e.g., start run, abort run) with no verification that the message originates from a registered, authenticated device \u2014 message broker topic is unauthenticated",
+        "Admin command endpoint accepts operational instructions via a shared secret in a query parameter rather than a per-device signed token or certificate"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the command consumer has no device-identity verification logic; confirm the message broker queue is not restricted to registered publisher certificates or credentials.",
+      "false_positive_traps": [
+        "This clause applies 'as appropriate' \u2014 systems with no instrument integration or no remote operational instructions are not implicated; confirm the system actually receives device-originated commands",
+        "VPN or firewall rules restricting which IP addresses can reach the command endpoint partially mitigate this \u2014 assess residual risk rather than treating as equivalent to cryptographic device authentication"
+      ]
+    },
+    {
+      "id": "P11-11.10h-003",
+      "finding_category": "No validation of data input source identity in multi-tenant context",
+      "part11_clauses": [
+        "11.10(h)"
+      ],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Multi-tenant SaaS application accepts data submissions with a tenantId claim in a JWT but does not verify that the submitting device is registered under that tenant \u2014 any device authenticating as tenant A could submit data attributed to tenant B if the tenantId claim is user-controlled",
+        "Data import API reads tenantId from the request body (user-controlled) rather than from the validated JWT claims \u2014 device identity is not verified against the tenant's registered device list"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm tenantId in the data submission path is sourced from user-controlled input rather than validated JWT or session claims; confirm no cross-check against a registered device table.",
+      "false_positive_traps": [
+        "If the tenantId is embedded in the authenticated JWT and not overridable by the request body, this pattern does not apply \u2014 inspect the claim extraction code carefully",
+        "Single-tenant deployments are not implicated by cross-tenant confusion patterns"
+      ]
+    },
+    {
+      "id": "P11-11.30-001",
+      "finding_category": "No encryption of records transmitted over open networks",
+      "part11_clauses": [
+        "11.30"
+      ],
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "HTTP client configuration (RestTemplate, OkHttpClient, WebClient) uses a plain http:// base URL for calls to external services that transmit regulated records \u2014 TLS is not enforced",
+        "Spring Boot application.properties sets server.ssl.enabled=false or omits SSL configuration entirely while the application is deployed in a context accessible beyond a trusted private network"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the application endpoint or outbound client uses unencrypted HTTP for regulated record transmission; confirm the network path crosses an untrusted segment (open system context).",
+      "false_positive_traps": [
+        "TLS may be terminated at a load balancer or reverse proxy (e.g., nginx, AWS ALB) \u2014 the application-to-proxy leg may be HTTP while the external-facing endpoint is HTTPS; verify the full path",
+        "If the system is a closed system (\u00a711.10) rather than an open system (\u00a711.30), this specific clause does not apply \u2014 confirm the system classification"
+      ]
+    },
+    {
+      "id": "P11-11.30-002",
+      "finding_category": "No digital signature on records transmitted to external parties",
+      "part11_clauses": [
+        "11.30"
+      ],
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "Record export or submission method serializes the record to JSON/XML and POSTs it to an external endpoint with no HMAC, RSA, or ECDSA signature appended to the payload \u2014 recipient cannot verify authenticity or detect in-transit modification",
+        "No code in the codebase references java.security.Signature, javax.crypto.Mac, or a third-party signing library (e.g., Bouncy Castle) in the context of record transmission"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the transmission path for regulated records to external parties includes no payload signature; confirm TLS alone is deemed insufficient for the authenticity requirement given the system's threat model.",
+      "false_positive_traps": [
+        "For most open-system transmissions TLS provides sufficient confidentiality and integrity \u2014 a digital signature on the payload is required only when non-repudiation or post-transmission tamper detection is needed; assess the regulatory context before raising",
+        "S/MIME or PGP email signing performed outside the application (e.g., by an email gateway) may satisfy this for email-based submissions"
+      ]
+    },
+    {
+      "id": "P11-11.30-003",
+      "finding_category": "TLS configuration permits weak cipher suites or outdated protocol versions",
+      "part11_clauses": [
+        "11.30"
+      ],
+      "clause_quote": "Such procedures and controls shall include those identified in § 11.10, as appropriate, and additional measures such as document encryption and use of appropriate digital signature standards to ensure, as necessary under the circumstances, record authenticity, integrity, and confidentiality.",
+      "code_patterns": [
+        "SSLContext or TrustManager configuration explicitly enables TLSv1.0 or TLSv1.1 protocol versions via setEnabledProtocols() or server.ssl.enabled-protocols=TLSv1,TLSv1.1 \u2014 and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary",
+        "HttpsURLConnection or SSLSocketFactory is configured with a custom TrustManager that overrides checkServerTrusted() with an empty body \u2014 accepting any certificate including self-signed or revoked ones \u2014 and the affected SSL context is used in a code path that transmits regulated electronic records across an open (non-closed) system network boundary"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the SSL/TLS configuration enables deprecated protocols or disables certificate validation; confirm the affected SSL context is used in a transmission path that carries regulated electronic records across an open system network boundary (\u00a711.30 scope); TLS misconfiguration on non-regulated or internal monitoring paths is out of scope for this row.",
+      "false_positive_traps": [
+        "Disabled certificate validation in a test/dev profile only (detected by @Profile('dev') or if active profile is not production) is not a production finding \u2014 confirm the active deployment profile",
+        "Legacy instrument integration may require older TLS versions as the instrument does not support TLS 1.2+ \u2014 document as a compensating control finding rather than a direct violation"
+      ]
+    },
+    {
+      "id": "P11-11.50-001",
+      "finding_category": "E-signature record missing printed name of signer",
+      "part11_clauses": [
+        "11.50"
+      ],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer;",
+      "code_patterns": [
+        "Signature entity or DTO has fields for signer_id (foreign key) and signed_at (timestamp) but no printed_name or display_name column \u2014 the stored record does not contain the human-readable name of the signer at the time of signing",
+        "signRecord() service method persists the signature row using only the user's numeric ID; no join to retrieve and store the display name at signing time, meaning subsequent name changes would make the name unrecoverable for the historical record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Inspect the SignatureRecord entity or table schema for a printed name column; confirm the signing service does not capture the name at signing time; confirm a name change to the user account would make attribution incomplete.",
+      "false_positive_traps": [
+        "If the system stores the user ID and the user table is immutable (names cannot be changed), the name can be reconstructed at retrieval time \u2014 assess whether this constitutes 'contained in the record' per FDA interpretation",
+        "An audit report layer that dynamically joins user name at display time may render the printed name in human-readable output even if not stored in the signature row itself \u2014 assess the human-readable form output path"
+      ]
+    },
+    {
+      "id": "P11-11.50-002",
+      "finding_category": "E-signature record missing meaning/reason for signing",
+      "part11_clauses": [
+        "11.50"
+      ],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer; (2) The date and time when the signature was executed; and (3) The meaning (such as review, approval, responsibility, or authorship) associated with the signature.",
+      "code_patterns": [
+        "SignatureRecord entity has no signature_meaning, signing_reason, or equivalent column \u2014 the stored row cannot indicate whether the signature represents review, approval, authorship, or another meaning",
+        "signRecord() method is called with only (recordId, userId) parameters \u2014 no signing reason is accepted or persisted"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signature table schema has no meaning/reason column; confirm the signing API accepts no meaning parameter; inspect any human-readable display of the signed record to confirm meaning is absent.",
+      "false_positive_traps": [
+        "Signing reason may be inferred from workflow state (e.g., signatures on records in APPROVED state always mean approval) \u2014 assess whether the system context makes the meaning unambiguous without explicit storage",
+        "A fixed-purpose signing workflow (only one action type ever signed) may have the meaning implicit; FDA guidance allows implicit meaning when context is unambiguous"
+      ]
+    },
+    {
+      "id": "P11-11.50-003",
+      "finding_category": "Signature metadata not included in human-readable record output",
+      "part11_clauses": [
+        "11.50"
+      ],
+      "clause_quote": "The items identified in paragraphs (a)(1), (a)(2), and (a)(3) of this section shall be subject to the same controls as for electronic records and shall be included as part of any human readable form of the electronic record (such as electronic display or printout).",
+      "code_patterns": [
+        "PDF or HTML report generation method for a signed record renders the record content fields but omits the signature block (signer name, date/time, meaning) from the rendered output",
+        "Record printout template (e.g., Thymeleaf, Jasper Report) has no template variable or data binding for signature metadata \u2014 the rendered human-readable form shows only the record body"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Generate a human-readable output (PDF/HTML printout) of a signed record and confirm the signer name, signing timestamp, and meaning are absent from the rendered document.",
+      "false_positive_traps": [
+        "Signature block may be rendered by a parent template or layout that is not visible in the child template file \u2014 inspect the full template inheritance chain",
+        "An electronic display path and a printout path may differ \u2014 confirm the finding applies to both paths or note which is deficient"
+      ]
+    },
+    {
+      "id": "P11-11.50-004",
+      "finding_category": "Signing timestamp uses client-supplied time rather than server-generated time",
+      "part11_clauses": [
+        "11.50"
+      ],
+      "clause_quote": "Signed electronic records shall contain information associated with the signing that clearly indicates all of the following: (1) The printed name of the signer; (2) The date and time when the signature was executed; and (3) The meaning (such as review, approval, responsibility, or authorship) associated with the signature.",
+      "code_patterns": [
+        "signRecord() service method reads the signing timestamp from the request body (e.g., request.getSignedAt()) and persists it directly \u2014 the client can supply an arbitrary past or future timestamp",
+        "SignatureRecord.signedAt is populated from a DTO field mapped from the JSON payload rather than from Instant.now() or a server-side clock call at the point of persistence"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signedAt value is sourced from the request payload; confirm it can be set to an arbitrary value by sending a custom timestamp in the POST body; confirm the server does not overwrite it with a server-generated timestamp.",
+      "false_positive_traps": [
+        "Client-supplied timestamps may be validated against a maximum skew window (e.g., reject if more than 5 minutes from server time) \u2014 a tight skew check partially mitigates the risk even if not fully compliant",
+        "Some architectures record both a client_timestamp and a server_received_at \u2014 if the server timestamp is what is displayed and stored as the official signing time, this pattern does not apply"
+      ]
+    },
+    {
+      "id": "P11-11.70-001",
+      "finding_category": "No cryptographic link between signature row and signed record",
+      "part11_clauses": [
+        "11.70"
+      ],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "SignatureRecord entity has a record_id foreign key to the signed record but no record_hash column storing a digest (e.g., SHA-256) of the signed record's content at the time of signing \u2014 a post-signing edit to the record content is undetectable by inspecting the signature row",
+        "signRecord() service method persists the signature with only a foreign key reference; no hash of the record's serialized content is computed and stored alongside the signature"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm SignatureRecord schema has no content hash column; confirm that modifying the signed record's fields after signing does not invalidate the signature; confirm no trigger or application check validates hash integrity on record retrieval.",
+      "false_positive_traps": [
+        "Immutable records (append-only storage, database row-level locking preventing updates after signing) can satisfy the linking requirement without a hash \u2014 assess whether the record is truly immutable post-signing",
+        "A digital signature (asymmetric key signature over record content) subsumes the hash requirement \u2014 check for any RSA/ECDSA signing of the record body before concluding linking is absent"
+      ]
+    },
+    {
+      "id": "P11-11.70-002",
+      "finding_category": "Signature row deletable or reassignable without cascading invalidation",
+      "part11_clauses": [
+        "11.70"
+      ],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "SignatureRepository exposes deleteById() or delete() callable from a service method without an immutability guard \u2014 an application user with sufficient privilege can excise a signature from a record",
+        "SignatureRecord.recordId can be updated via a setter or @Modifying @Query \u2014 the signature can be reassigned to a different record, constituting a transfer to falsify another record"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm a signature row can be deleted or its record_id updated via the application API; confirm the signed record does not detect or flag the missing or reassigned signature.",
+      "false_positive_traps": [
+        "Superuser-only deletion for regulatory purge holds is a legitimate need \u2014 the finding applies when non-privileged roles can excise signatures",
+        "A soft-delete (is_deleted flag) on signatures may be acceptable if the original record and a flag indicating deletion are preserved and retrievable"
+      ]
+    },
+    {
+      "id": "P11-11.70-003",
+      "finding_category": "Signature hash computed over partial record content",
+      "part11_clauses": [
+        "11.70"
+      ],
+      "clause_quote": "Electronic signatures and handwritten signatures executed to electronic records shall be linked to their respective electronic records to ensure that the signatures cannot be excised, copied, or otherwise transferred to falsify an electronic record by ordinary means.",
+      "code_patterns": [
+        "computeRecordHash() method serializes only a subset of the entity's fields (e.g., result fields but not status, reviewer notes, or version) \u2014 mutations to excluded fields are not detected by the stored hash",
+        "Hash is computed over the record's toString() output which excludes transient or lazily-loaded fields that are part of the regulated record content"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare the set of fields included in the hash computation against the complete set of regulated fields in the entity; confirm that modifying an excluded field does not change the stored hash.",
+      "false_positive_traps": [
+        "Internal system fields (e.g., JPA version counter, cache busting timestamps) are legitimately excluded from content hashes \u2014 only regulated data fields matter for this finding",
+        "A canonical serialization that is documented and stable is sufficient even if it excludes some entity fields, provided the excluded fields are not part of the regulated record content"
+      ]
+    },
+    {
+      "id": "P11-11.100-001",
+      "finding_category": "Electronic signature ID reuse or reassignment allowed by code",
+      "part11_clauses": [
+        "11.100"
+      ],
+      "clause_quote": "Each electronic signature shall be unique to one individual and shall not be reused by, or reassigned to, anyone else.",
+      "code_patterns": [
+        "User entity allows the username or email (used as the electronic signature identifier) to be updated via a PUT /users/{id} endpoint with no guard preventing reuse of a previously assigned identifier \u2014 a deactivated user's username can be reassigned to a new user",
+        "No UNIQUE constraint on the username or signature_id column in the database migration scripts, allowing the same identifier to be assigned to multiple users over time"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the user identifier field has no UNIQUE database constraint or that the application permits username reassignment; confirm a deactivated user's identifier can be given to a new user.",
+      "false_positive_traps": [
+        "UUID-based user IDs are globally unique by construction \u2014 if the signature identifier is the UUID (not the username), reassignment is not possible; confirm which field serves as the electronic signature identifier",
+        "SSO/IdP-managed identities may enforce uniqueness externally \u2014 confirm whether the application enforces it independently"
+      ]
+    },
+    {
+      "id": "P11-11.100-002",
+      "finding_category": "No identity verification before electronic signature provisioning",
+      "part11_clauses": [
+        "11.100"
+      ],
+      "clause_quote": "Before an organization establishes, assigns, certifies, or otherwise sanctions an individual's electronic signature, or any element of such electronic signature, the organization shall verify the identity of the individual.",
+      "code_patterns": [
+        "User registration endpoint allows self-service account creation with only an email and password \u2014 no identity verification step (email confirmation, manager approval, identity document check) is enforced before the account can be used to sign records",
+        "UserService.createUser() method immediately sets account status to ACTIVE and signing_enabled=true with no pending verification state and no admin approval workflow"
+      ],
+      "mapping_confidence": "low",
+      "gamp5_category": 5,
+      "evidence_needed": "This clause is primarily procedural; code-level signal is the absence of any approval workflow or identity verification state in the user provisioning path. Low confidence because compliant identity verification may occur outside the application (e.g., HR onboarding). Confirm SOPs and onboarding records separately.",
+      "false_positive_traps": [
+        "Identity verification may be enforced by an upstream IdP or HR system external to the application \u2014 absence of verification code in the application is not a finding if an external process is documented",
+        "Email confirmation alone may satisfy some interpretations of identity verification for low-risk contexts \u2014 assess the regulatory context and system risk classification"
+      ]
+    },
+    {
+      "id": "P11-11.200-001",
+      "finding_category": "Single-factor authentication used for electronic signature",
+      "part11_clauses": [
+        "11.200"
+      ],
+      "clause_quote": "Employ at least two distinct identification components such as an identification code and password.",
+      "code_patterns": [
+        "signRecord() service method requires only a re-entry of the user's password (one factor) to authorize a signature \u2014 no second factor (TOTP, hardware token, PIN) is required or checked",
+        "Electronic signature endpoint authenticates the signing action by verifying only the Bearer JWT token already in the session \u2014 no additional credential challenge is presented at signing time"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the signing endpoint requires only one credential; trace the authentication call graph to confirm only one factor is verified before the signature is persisted.",
+      "false_positive_traps": [
+        "If the user executed a full two-factor login during the same continuous controlled-access session (\u00a711.200(a)(1)(i)), subsequent signings may use only one component \u2014 assess whether the session context is continuous and controlled",
+        "Biometric signatures (\u00a711.200(b)) are exempt from the two-component requirement \u2014 confirm the signing mechanism is not biometric-based"
+      ]
+    },
+    {
+      "id": "P11-11.200-002",
+      "finding_category": "Electronic signature components not unique to owner \u2014 shared credentials allowed",
+      "part11_clauses": [
+        "11.200"
+      ],
+      "clause_quote": "Be used only by their genuine owners; and (3) Be administered and executed to ensure that attempted use of an individual's electronic signature by anyone other than its genuine owner requires collaboration of two or more individuals.",
+      "code_patterns": [
+        "Shared service account (e.g., lab-admin, system-user) is used to sign records \u2014 the account's credentials are known to multiple individuals, defeating uniqueness",
+        "No enforcement in code preventing a user from sharing their password: no concurrent session detection, no device binding, and no anomaly detection for simultaneous logins from different IPs signing records"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm records are signed under a shared account by inspecting the signer_id of signature rows; confirm the account credentials are accessible to more than one individual via shared secrets.",
+      "false_positive_traps": [
+        "Service accounts for automated system-to-system integrations that do not constitute 'electronic signatures' under Part 11 are not implicated \u2014 confirm the signature use case",
+        "MFA with a hardware token bound to one person mitigates shared-password risk even if the password itself is shared \u2014 assess the full authentication chain"
+      ]
+    },
+    {
+      "id": "P11-11.300-001",
+      "finding_category": "No password uniqueness enforcement \u2014 duplicate credential pairs allowed",
+      "part11_clauses": [
+        "11.300"
+      ],
+      "clause_quote": "Maintaining the uniqueness of each combined identification code and password, such that no two individuals have the same combination of identification code and password.",
+      "code_patterns": [
+        "User registration or password-change service does not check whether the new (username, password) combination already exists for another user \u2014 no query against existing credentials to detect duplication (noting that hashed passwords require a different uniqueness strategy, e.g., unique username alone with individual password hashes)",
+        "No UNIQUE constraint on the username column in database migration scripts, allowing two users to share the same identification code"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm username uniqueness is not enforced at the database level (no UNIQUE constraint) and not enforced in the application service layer; confirm two users can register with the same username.",
+      "false_positive_traps": [
+        "When passwords are properly hashed, enforcing identical (username+password) combinations at the application layer is impractical \u2014 the uniqueness requirement is effectively satisfied by enforcing unique usernames alone; confirm username uniqueness rather than searching for duplicate hashed passwords",
+        "Email-as-username with a UNIQUE constraint on the email column satisfies this requirement even if not labeled 'username'"
+      ]
+    },
+    {
+      "id": "P11-11.300-002",
+      "finding_category": "No password aging or periodic credential review",
+      "part11_clauses": [
+        "11.300"
+      ],
+      "clause_quote": "Ensuring that identification code and password issuances are periodically checked, recalled, or revised (e.g., to cover such events as password aging).",
+      "code_patterns": [
+        "No @Scheduled job or password expiry logic in the codebase \u2014 User entity has no password_last_changed or password_expires_at column, and no forced re-authentication or password reset is triggered after any configurable period",
+        "application.properties has no security.password.max-age or equivalent property, and no password rotation policy is enforced in the UserService"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm User entity lacks password_expires_at or equivalent; confirm no scheduled job or login-time check enforces password rotation; note that NIST 800-63B recommends against mandatory periodic rotation absent breach \u2014 assess regulatory context and SOP requirements.",
+      "false_positive_traps": [
+        "Modern NIST guidance (SP 800-63B) discourages mandatory periodic password changes unless compromise is suspected \u2014 FDA Part 11 does not prescribe a specific rotation interval; absence of rotation may be a deliberate, defensible policy choice",
+        "Password rotation may be enforced by the IdP (e.g., Active Directory group policy) external to the application \u2014 absence in the application code is not a finding if IdP policy is documented"
+      ]
+    },
+    {
+      "id": "P11-11.300-003",
+      "finding_category": "No detection or reporting of unauthorized credential use attempts",
+      "part11_clauses": [
+        "11.300"
+      ],
+      "clause_quote": "Use of transaction safeguards to prevent unauthorized use of passwords and/or identification codes, and to detect and report in an immediate and urgent manner any attempts at their unauthorized use to the system security unit, and, as appropriate, to organizational management.",
+      "code_patterns": [
+        "Authentication failure handler logs the failed attempt to a general application log but does not trigger an alert, increment a lockout counter, or publish a security event to a monitoring system \u2014 no call to securityEventPublisher.publishLoginFailure() or equivalent",
+        "No account lockout logic: failed login attempts are not counted in the User entity or a distributed cache; brute-force attacks will not trigger a lockout or alert"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm authentication failure handler has no lockout counter increment and no alert publication; confirm User entity has no failed_attempts or locked_until field; confirm monitoring system receives no security event on repeated failures.",
+      "false_positive_traps": [
+        "Rate limiting at an API gateway or WAF may prevent brute force even without application-level lockout \u2014 assess the full defense-in-depth stack before raising as a standalone finding",
+        "Log aggregation tools (Splunk, ELK) may alert on repeated authentication failures via log pattern matching external to the application \u2014 confirm whether this constitutes 'immediate and urgent' reporting as required"
+      ]
+    },
+    {
+      "id": "P11-11.300-004",
+      "finding_category": "No loss management \u2014 compromised tokens not electronically deauthorized",
+      "part11_clauses": [
+        "11.300"
+      ],
+      "clause_quote": "Following loss management procedures to electronically deauthorize lost, stolen, missing, or otherwise potentially compromised tokens, cards, and other devices that bear or generate identification code or password information, and to issue temporary or permanent replacements using suitable, rigorous controls.",
+      "code_patterns": [
+        "JWT-based authentication with no token revocation mechanism \u2014 no blacklist table, no Redis revocation set, and token expiry is the only mechanism to invalidate a compromised token; there is no admin endpoint to revoke a specific user's tokens immediately",
+        "No UserService.revokeAllTokens(userId) method exists and no token_revoked_at or force_logout_at field on the User entity that would invalidate outstanding JWTs"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm there is no token revocation endpoint; confirm a captured JWT continues to authenticate successfully after the account is reported compromised (until natural expiry); confirm token TTL is long enough to present a material risk window.",
+      "false_positive_traps": [
+        "Short-lived JWTs (e.g., 5-minute access tokens) with opaque refresh tokens that are revocable substantially mitigate this \u2014 assess whether the access token TTL is short enough to limit the exposure window",
+        "Stateful sessions (server-side session store) can be invalidated immediately regardless of token format \u2014 this pattern applies only to stateless JWT architectures"
+      ]
+    }
+  ]
+}

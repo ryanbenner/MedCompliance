@@ -1,0 +1,124 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.10e-001",
+      "finding_category": "No audit trail on entity create/update/delete",
+      "part11_clauses": ["11.10(e)"],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records.",
+      "code_patterns": [
+        "JPA @Entity class has no @EntityListeners(AuditingEntityListener.class) annotation, no @CreatedDate/@LastModifiedDate fields, no @PrePersist/@PreUpdate lifecycle callbacks writing to an audit log table, and no surrounding AOP @Aspect with a @AfterReturning advice on repository.save()",
+        "Service method updateRecord() calls repository.save(entity) with no subsequent call to auditLogRepository.save() or auditEventPublisher.publish()"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Trace the full call graph from the service update method to persistence; confirm no audit write exists at any layer (entity listener, AOP, event listener, DB trigger visible in migration scripts).",
+      "false_positive_traps": [
+        "Database triggers in migration scripts (e.g., Flyway/Liquibase) may write to an audit table without any application-level code — inspect migration files before concluding audit trail is absent",
+        "An infrastructure-level CDC (Change Data Capture) stream (e.g., Debezium) may capture all changes externally — this satisfies the requirement even if no application-level audit code exists",
+        "Spring Data JPA @CreatedDate/@LastModifiedDate with @EnableJpaAuditing satisfies timestamping of the record itself but does NOT write a separate audit trail entry — distinguish between in-row timestamps and an independent audit log"
+      ]
+    },
+    {
+      "id": "P11-11.10e-002",
+      "finding_category": "Audit trail records overwritable by application",
+      "part11_clauses": ["11.10(e)"],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records. Record changes shall not obscure previously recorded information.",
+      "code_patterns": [
+        "AuditLog entity exposes a public setter on its content, timestamp, or userId field and the corresponding repository has no @PreUpdate guard preventing modification of existing audit rows",
+        "AuditLogRepository extends JpaRepository<AuditLog, Long> exposing deleteById() callable from a service layer method without restriction to a superuser-only path"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm an existing audit log row can be updated or deleted via the application API without superuser escalation; inspect the database grant — the application DB user should have INSERT-only on audit tables, not UPDATE/DELETE.",
+      "false_positive_traps": [
+        "Soft-delete on audit records (setting is_deleted=true) rather than physical DELETE may be acceptable depending on whether the original entry remains retrievable — assess retrieval path",
+        "Superuser-only deletion for compliance holds purges is a legitimate operational need; the finding applies only when non-privileged application roles can delete audit rows"
+      ]
+    },
+    {
+      "id": "P11-11.10e-003",
+      "finding_category": "Audit trail missing operator identity",
+      "part11_clauses": ["11.10(e)"],
+      "clause_quote": "Use of secure, computer-generated, time-stamped audit trails to independently record the date and time of operator entries and actions that create, modify, or delete electronic records.",
+      "code_patterns": [
+        "AuditLog entity has timestamp and action fields but no userId or username column — the recorded entry cannot be attributed to the individual who performed the action",
+        "Audit write code retrieves the current user as a system service account (e.g., always writes userId='system') rather than reading from SecurityContextHolder.getContext().getAuthentication().getName()"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Inspect the AuditLog entity schema for a user identifier column; inspect the audit write path to confirm it sources the identity from the authenticated principal, not a hardcoded constant.",
+      "false_positive_traps": [
+        "Audit records in a shared-service architecture may record the calling service identity rather than end-user identity — assess whether the calling service passes the delegated user context in a header that is captured",
+        "Batch jobs running as a service account legitimately record the service account identity — apply this pattern only to interactive user-driven operations"
+      ]
+    },
+    {
+      "id": "P11-11.10e-004",
+      "finding_category": "Audit trail retention shorter than record retention",
+      "part11_clauses": ["11.10(e)"],
+      "clause_quote": "Such audit trail documentation shall be retained for a period at least as long as that required for the subject electronic records and shall be available for agency review and copying.",
+      "code_patterns": [
+        "Scheduled @Scheduled(cron=...) purge job deletes AuditLog rows older than a configured audit.retention.days property, but the subject record retention period (record.retention.years) is longer — audit rows are purged before the records they describe",
+        "Application configuration file sets audit.retention.days=365 while the regulatory requirement for the subject records is 2+ years"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare audit.retention.days/years config value against the regulatory retention requirement for the subject records; confirm the purge job uses the shorter value.",
+      "false_positive_traps": [
+        "Audit logs may be archived to cold storage rather than deleted — confirm that purged-from-database rows are truly unrecoverable and not archived elsewhere",
+        "The regulatory retention period may vary by record type — confirm the comparison is made for the same record category"
+      ]
+    },
+    {
+      "id": "P11-11.10h-001",
+      "finding_category": "Missing device-identity authentication on data ingestion endpoint",
+      "part11_clauses": ["11.10(h)"],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Data ingestion endpoint accepts POST requests with no validation of a client certificate, API key, or registered device identifier — any network client can submit data as if it were a trusted instrument or terminal",
+        "Instrument data import service reads from a file drop directory with no hash verification of the file source or digital signature on the payload — a file placed by any process is treated as originating from a trusted device"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the ingestion endpoint or file import path accepts input without any device or client authentication; confirm data is persisted as a regulated record without source validation.",
+      "false_positive_traps": [
+        "Network-layer mTLS termination at a load balancer or API gateway may enforce device certificates even when the application code does not check them — verify end-to-end trust chain",
+        "For internal lab instruments on an isolated network segment, device-level authentication may be satisfied by network controls rather than application code"
+      ]
+    },
+    {
+      "id": "P11-11.10h-002",
+      "finding_category": "Operational instruction accepted from unauthenticated source",
+      "part11_clauses": ["11.10(h)"],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Internal REST or message-queue consumer processes instrument control commands (e.g., start run, abort run) with no verification that the message originates from a registered, authenticated device — message broker topic is unauthenticated",
+        "Admin command endpoint accepts operational instructions via a shared secret in a query parameter rather than a per-device signed token or certificate"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm the command consumer has no device-identity verification logic; confirm the message broker queue is not restricted to registered publisher certificates or credentials.",
+      "false_positive_traps": [
+        "This clause applies 'as appropriate' — systems with no instrument integration or no remote operational instructions are not implicated; confirm the system actually receives device-originated commands",
+        "VPN or firewall rules restricting which IP addresses can reach the command endpoint partially mitigate this — assess residual risk rather than treating as equivalent to cryptographic device authentication"
+      ]
+    },
+    {
+      "id": "P11-11.10h-003",
+      "finding_category": "No validation of data input source identity in multi-tenant context",
+      "part11_clauses": ["11.10(h)"],
+      "clause_quote": "Use of device (e.g., terminal) checks to determine, as appropriate, the validity of the source of data input or operational instruction.",
+      "code_patterns": [
+        "Multi-tenant SaaS application accepts data submissions with a tenantId claim in a JWT but does not verify that the submitting device is registered under that tenant — any device authenticating as tenant A could submit data attributed to tenant B if the tenantId claim is user-controlled",
+        "Data import API reads tenantId from the request body (user-controlled) rather than from the validated JWT claims — device identity is not verified against the tenant's registered device list"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm tenantId in the data submission path is sourced from user-controlled input rather than validated JWT or session claims; confirm no cross-check against a registered device table.",
+      "false_positive_traps": [
+        "If the tenantId is embedded in the authenticated JWT and not overridable by the request body, this pattern does not apply — inspect the claim extraction code carefully",
+        "Single-tenant deployments are not implicated by cross-tenant confusion patterns"
+      ]
+    }
+  ]
+}

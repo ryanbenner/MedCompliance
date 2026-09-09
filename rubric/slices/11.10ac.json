@@ -1,0 +1,126 @@
+{
+  "rows": [
+    {
+      "id": "P11-11.10a-001",
+      "finding_category": "Missing field-level constraint enforcement on regulated record persistence path",
+      "part11_clauses": ["11.10(a)"],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "Service or controller method accepts a record payload (e.g., @RequestBody) and directly persists it via repository.save() with no @Valid annotation and no explicit field-level validation before the call",
+        "Entity setter or constructor accepts a String parameter for a regulated field (e.g., lotNumber, specimenId) without length, format, or null checks — no @NotNull/@Pattern annotation and no guard clause",
+        "No unit or integration test class in the project exercises a save path with an out-of-range or malformed value for regulated record fields"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Trace the save() call graph from the API endpoint to persistence layer; confirm absence of @Valid, Validator.validate(), or equivalent guard; confirm no schema-level constraint in the ORM mapping for the field in question.",
+      "false_positive_traps": [
+        "Validation may be enforced at the database DDL level (NOT NULL, CHECK constraints) even when absent in application code — check migration scripts before calling this a finding",
+        "A @Valid on the outer DTO may cascade to nested objects; inspect the full object graph before concluding validation is absent",
+        "Third-party framework interceptors (e.g., Spring's HandlerMethodArgumentResolverComposite) may silently apply validation even without explicit annotations in the observed class",
+        "XSS, SQL injection, and other generic input sanitization findings are explicitly out-of-scope for this row — this row fires only when regulated field data reaches a JPA/ORM persistence call without field-level constraints; do not use the finding_category as a keyword match for generic web sanitization findings"
+      ]
+    },
+    {
+      "id": "P11-11.10a-002",
+      "finding_category": "No checksum or hash verification on retrieved electronic records",
+      "part11_clauses": ["11.10(a)"],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "Record retrieval service (findById, fetchRecord) returns a deserialized entity with no integrity check — no comparison of a stored hash/checksum field against a freshly computed digest of the record's content fields",
+        "Entity class declares no @Column for a hash or checksum field, and there is no @PostLoad callback computing one"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Review the entity class for a checksum/hash column; review the repository or service layer for any digest computation on load; absence of both is the finding.",
+      "false_positive_traps": [
+        "Some systems rely on database transaction isolation rather than application-level checksums — this is an architectural choice, not necessarily non-compliant; inspector must assess whether the system can discern altered records by other means",
+        "A separate audit trail (see 11.10(e)) that records every mutation can substitute for per-record checksums for discerning alteration"
+      ]
+    },
+    {
+      "id": "P11-11.10a-003",
+      "finding_category": "No IQ/OQ/PQ test coverage for regulated record operations",
+      "part11_clauses": ["11.10(a)"],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "No test class in the codebase exercises the create, update, or delete path for regulated entity types with assertions on returned values — measured by finding zero @Test methods whose names or body reference the regulated entity name and a persistence call",
+        "Test directory is absent or contains only smoke tests with no assertion on record field values after persistence"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Enumerate all @Test/@ParameterizedTest methods; filter for those exercising regulated entity persistence; confirm no assertion on post-save field values. IQ/OQ/PQ documentation gap must be confirmed separately.",
+      "false_positive_traps": [
+        "External validation protocol documents (IQ/OQ/PQ scripts in PDF) are the primary evidence for 11.10(a) validation — absence of automated tests alone is insufficient if manual protocol records exist",
+        "A project may use BDD/Cucumber feature files not discovered by a grep for @Test — check all test directories"
+      ]
+    },
+    {
+      "id": "P11-11.10a-004",
+      "finding_category": "Mutable entity allows post-save field overwrite without version guard",
+      "part11_clauses": ["11.10(a)"],
+      "clause_quote": "Validation of systems to ensure accuracy, reliability, consistent intended performance, and the ability to discern invalid or altered records.",
+      "code_patterns": [
+        "JPA entity class has public setters on all regulated fields and no @Version field, enabling a lost-update scenario where two concurrent writers silently overwrite each other's changes",
+        "Repository exposes a bulk update method (e.g., @Modifying @Query('UPDATE ...')) with no WHERE clause version check"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm entity has no @Version field; confirm service layer has no optimistic-lock retry or pessimistic-lock annotation; reproduce with a concurrent test or review transaction isolation level.",
+      "false_positive_traps": [
+        "Database-level serializable isolation may prevent lost updates even without @Version — confirm transaction isolation level before raising",
+        "Read-only entities with no update path are not implicated by this pattern"
+      ]
+    },
+    {
+      "id": "P11-11.10c-001",
+      "finding_category": "Missing retention enforcement — records deletable before retention period expires",
+      "part11_clauses": ["11.10(c)"],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "Repository exposes a deleteById() or delete() method callable from a service or REST endpoint with no guard checking a retentionExpiry or deletionAllowed flag on the record",
+        "Soft-delete pattern absent: entity has no @Column for deleted_at or is_archived, and hard-delete is the only deletion path in the codebase"
+      ],
+      "mapping_confidence": "high",
+      "gamp5_category": 5,
+      "evidence_needed": "Confirm deleteById/delete is reachable from a non-admin endpoint with no retention-period check; confirm entity lacks soft-delete columns; confirm no scheduled job enforces a retention hold.",
+      "false_positive_traps": [
+        "Admin-only delete endpoints protected by role checks (ROLE_ADMIN) may be compliant depending on SOPs — inspect whether the admin role is tightly controlled",
+        "Cascade deletes on parent entities may appear to delete records indirectly — trace cascade relationships before concluding records are unprotected"
+      ]
+    },
+    {
+      "id": "P11-11.10c-002",
+      "finding_category": "Archive or export path produces incomplete record copies",
+      "part11_clauses": ["11.10(c)"],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "Export/archive method serializes only a subset of entity fields (e.g., a hand-written toExportDto() that omits audit timestamps, signer ID, or version fields) resulting in a retrievable copy lacking fields required for accurate reproduction",
+        "A scheduled archival job moves records to cold storage but truncates or omits columns flagged as 'internal' in the mapping"
+      ],
+      "mapping_confidence": "medium",
+      "gamp5_category": 5,
+      "evidence_needed": "Compare the entity field list against the serialized output of the export method; identify omitted fields; confirm those fields are required for record accuracy under the relevant records requirement.",
+      "false_positive_traps": [
+        "Some fields are legitimately excluded from exports (e.g., internal cache columns) — only regulated data fields are in scope for this finding",
+        "A separate archival system may store the complete record even if the application-level export is partial"
+      ]
+    },
+    {
+      "id": "P11-11.10c-003",
+      "finding_category": "No retrieval test confirming records survive retention period boundary",
+      "part11_clauses": ["11.10(c)"],
+      "clause_quote": "Protection of records to enable their accurate and ready retrieval throughout the records retention period.",
+      "code_patterns": [
+        "No integration test or validation script exercises a read path for a record whose creation date is older than the configured retention period — i.e., no test seeds an old-dated record and asserts it is still retrievable",
+        "Application has a configurable DATA_RETENTION_YEARS property but no automated check that reads records aged past that boundary to confirm they exist"
+      ],
+      "mapping_confidence": "low",
+      "gamp5_category": 5,
+      "evidence_needed": "Review test suite for any test that seeds records with past dates and asserts retrieval after a simulated retention period boundary; absence is a low-confidence code-level signal only — primary evidence is validation protocol documents.",
+      "false_positive_traps": [
+        "Database backups and archival infrastructure outside the application codebase can satisfy retrieval requirements — code-level absence is not sufficient alone",
+        "Cloud-managed storage with retention locks (e.g., S3 Object Lock) may satisfy this independent of application code"
+      ]
+    }
+  ]
+}
